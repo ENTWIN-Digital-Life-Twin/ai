@@ -1,0 +1,17 @@
+{
+  "name": "lifestyle-risk",
+  "version": "1.0.0",
+  "algorithm": "DecisionTreeClassifier",
+  "sklearnVersion": "1.9.0",
+  "maxDepth": 5,
+  "randomState": 42,
+  "usedInProduction": false,
+  "features": ["sleep_score", "hydration_score", "activity_score", "stress_score"],
+  "classes": ["deshydratation", "fatigue", "normal", "sedentarite", "surcharge"],
+  "trainingData": "Synthetic 0-100 scores labeled by app.baseline.evaluate_risk with injected label noise",
+  "notes": [
+    "Valid sklearn DecisionTreeClassifier artifact",
+    "Not compatible with Wellness native units (minutes, ml, 1-10 mood scales)",
+    "Production POST /api/v1/ai/lifestyle-risk uses RULE_BASED_BASELINE instead of this pickle"
+  ]
+}

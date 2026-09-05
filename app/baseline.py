@@ -1,3 +1,10 @@
+"""Rule-based lifestyle baseline used by the original teammate implementation.
+
+Production lifestyle-risk still uses this engine (RULE_BASED_BASELINE).
+Do not treat this as a trained ML model.
+"""
+
+
 def evaluate_risk(sleep_score, hydration_score, activity_score, stress_score, threshold=60):
     scores = {
         "fatigue": sleep_score,

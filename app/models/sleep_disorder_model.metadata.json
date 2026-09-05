@@ -1,0 +1,59 @@
+{
+  "name": "sleep-risk",
+  "version": "1.0.0",
+  "algorithm": "DecisionTreeClassifier",
+  "sklearnVersion": "1.9.0",
+  "maxDepth": 5,
+  "randomState": 42,
+  "target": "Sleep Disorder",
+  "classes": ["Insomnia", "None", "Sleep Apnea"],
+  "features": [
+    "Age",
+    "Sleep Duration",
+    "Quality of Sleep",
+    "Physical Activity Level",
+    "Stress Level",
+    "Heart Rate",
+    "Daily Steps",
+    "Gender",
+    "BMI_Normal",
+    "BMI_Obese",
+    "BMI_Overweight"
+  ],
+  "datasetName": "Sleep Health and Lifestyle Dataset",
+  "datasetRows": 374,
+  "holdout": {
+    "testSize": 0.2,
+    "randomState": 42,
+    "stratified": true,
+    "accuracy": 0.96,
+    "macroPrecision": 0.9375,
+    "macroRecall": 0.9494,
+    "macroF1": 0.9431,
+    "weightedPrecision": 0.9617,
+    "weightedRecall": 0.96,
+    "weightedF1": 0.9606,
+    "confusionMatrixLabels": ["Insomnia", "None", "Sleep Apnea"],
+    "confusionMatrix": [
+      [14, 0, 1],
+      [1, 43, 0],
+      [1, 0, 15]
+    ],
+    "note": "Holdout metrics of the serialized production pickle on the original 80/20 stratified split. Decision-tree predict_proba values are uncalibrated."
+  },
+  "crossValidation": {
+    "folds": 5,
+    "strategy": "StratifiedKFold",
+    "shuffle": true,
+    "randomState": 42,
+    "accuracyMean": 0.8931,
+    "accuracyStd": 0.0376,
+    "note": "CV retrains clones with the same hyperparameters; it does not re-evaluate the frozen production pickle and is not production validation."
+  },
+  "limitations": [
+    "Small academic dataset (374 rows)",
+    "Class imbalance (None 219 / Sleep Apnea 78 / Insomnia 77)",
+    "Prototype quality; not a medical diagnostic tool",
+    "predict_proba is a tree vote share, not a calibrated clinical probability"
+  ]
+}

@@ -1,0 +1,105 @@
+FROZEN_SLEEP_FEATURES = [
+    "Age",
+    "Sleep Duration",
+    "Quality of Sleep",
+    "Physical Activity Level",
+    "Stress Level",
+    "Heart Rate",
+    "Daily Steps",
+    "Gender",
+    "BMI_Normal",
+    "BMI_Obese",
+    "BMI_Overweight",
+]
+
+SLEEP_REGRESSION_SAMPLES = [
+    {
+        "name": "spec_example",
+        "request": {
+            "age": 24,
+            "gender": "Female",
+            "sleep_duration": 7.2,
+            "quality_of_sleep": 8,
+            "physical_activity_level": 60,
+            "stress_level": 4,
+            "bmi_category": "Normal",
+            "heart_rate": 72,
+            "daily_steps": 8000,
+        },
+        "predicted_class": "None",
+        "confidence": 0.82,
+    },
+    {
+        "name": "healthy_csv_row8",
+        "request": {
+            "age": 29,
+            "gender": "Male",
+            "sleep_duration": 7.8,
+            "quality_of_sleep": 7,
+            "physical_activity_level": 75,
+            "stress_level": 6,
+            "bmi_category": "Normal",
+            "heart_rate": 70,
+            "daily_steps": 8000,
+        },
+        "predicted_class": "None",
+        "confidence": 0.98,
+    },
+    {
+        "name": "apnea_csv_row4",
+        "request": {
+            "age": 28,
+            "gender": "Male",
+            "sleep_duration": 5.9,
+            "quality_of_sleep": 4,
+            "physical_activity_level": 30,
+            "stress_level": 8,
+            "bmi_category": "Obese",
+            "heart_rate": 85,
+            "daily_steps": 3000,
+        },
+        "predicted_class": "Insomnia",
+        "confidence": 0.57,
+    },
+    {
+        "name": "female_nurse_row17",
+        "request": {
+            "age": 29,
+            "gender": "Female",
+            "sleep_duration": 6.5,
+            "quality_of_sleep": 5,
+            "physical_activity_level": 40,
+            "stress_level": 7,
+            "bmi_category": "Normal",
+            "heart_rate": 80,
+            "daily_steps": 4000,
+        },
+        "predicted_class": "Sleep Apnea",
+        "confidence": 1.0,
+    },
+]
+
+LEGACY_LIFESTYLE_SAMPLES = [
+    {
+        "request": {
+            "sleep_score": 45,
+            "hydration_score": 70,
+            "activity_score": 80,
+            "stress_score": 65,
+        },
+        "risk": "fatigue",
+        "confidence": 0.25,
+        "contributing_factors": ["fatigue"],
+    },
+    {
+        "request": {
+            "sleep_score": 85,
+            "hydration_score": 80,
+            "activity_score": 90,
+            "stress_score": 88,
+        },
+        "risk": "normal",
+        "confidence": 0.86,
+        "contributing_factors": [],
+    },
+]

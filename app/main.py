@@ -1,72 +1,102 @@
-import joblib
-import pandas as pd
-from fastapi import FastAPI
-from pydantic import BaseModel, Field
-from app.baseline import evaluate_risk
+from contextlib import asynccontextmanager
+import logging
 
-app = FastAPI(title="Digital life Twin - AI Service")
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-# Chargement du modele et de la liste des features
-sleep_model = joblib.load("app/models/sleep_disorder_model.joblib")
-sleep_features = joblib.load("app/models/sleep_disorder_features.joblib")
+from app.api.routes import health, legacy, lifestyle, models, planning, recommendations, sleep
+from app.core.config import Settings, get_settings
+from app.core.exceptions import AppError, ModelLoadError, error_body
+from app.core.logging import RequestLoggingMiddleware, configure_logging
+from app.ml.model_loader import load_registry
 
-class DailyScores(BaseModel):
-    sleep_score: float = Field(..., ge=0, le=100)
-    hydration_score: float = Field(..., ge=0, le=100)
-    activity_score: float = Field(..., ge=0, le=100)
-    stress_score: float = Field(..., ge=0, le=100)
+logger = logging.getLogger("entwin.ai")
 
 
-class SleepProfile(BaseModel):
-    age: int = Field(..., ge=0, le=120)
-    gender: str = Field(..., pattern="^(Male|Female)$")
-    sleep_duration: float = Field(..., ge=0, le=24)
-    quality_of_sleep: int = Field(..., ge=1, le=10)
-    physical_activity_level: int = Field(..., ge=0, le=200)
-    stress_level: int = Field(..., ge=1, le=10)
-    bmi_category: str = Field(..., pattern="^(Normal|Overweight|Obese)$")
-    heart_rate: int = Field(..., ge=30, le=220)
-    daily_steps: int = Field(..., ge=0, le=50000)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings: Settings = get_settings()
+    app.state.settings = settings
+    try:
+        app.state.models = load_registry(settings)
+    except ModelLoadError:
+        logger.exception("required model failed to load at startup")
+        raise
+    yield
 
 
-@app.get("/")
-def root():
-    return {"message": "AI service is running"}
-
-
-@app.post("/predict/lifestyle_risk")
-def predict_lifestyle_risk(scores: DailyScores):
-    result = evaluate_risk(
-        sleep_score=scores.sleep_score,
-        hydration_score=scores.hydration_score,
-        activity_score=scores.activity_score,
-        stress_score=scores.stress_score
+def create_app() -> FastAPI:
+    configure_logging()
+    settings = get_settings()
+    application = FastAPI(
+        title="ENTWIN AI Service",
+        description=(
+            "Lifestyle and sleep risk indicators for ENTWIN Digital Life Twin. "
+            "Outputs are informational and are not medical diagnoses."
+        ),
+        version=settings.app_version,
+        lifespan=lifespan,
     )
-    return result
+    application.add_middleware(RequestLoggingMiddleware)
+    _register_exception_handlers(application)
+
+    application.include_router(health.router)
+    application.include_router(models.router, prefix="/api/v1/ai")
+    application.include_router(sleep.router, prefix="/api/v1/ai")
+    application.include_router(lifestyle.router, prefix="/api/v1/ai")
+    application.include_router(planning.router, prefix="/api/v1/ai")
+    application.include_router(recommendations.router, prefix="/api/v1/ai")
+    application.include_router(legacy.router)
+
+    @application.get("/")
+    def root() -> dict[str, str]:
+        return {"message": "AI service is running", "service": settings.app_name, "version": settings.app_version}
+
+    return application
 
 
-@app.post("/predict/sleep_disorder")
-def predict_sleep_disorder(profile: SleepProfile):
-    row = {
-        "Age": profile.age,
-        "Sleep Duration": profile.sleep_duration,
-        "Quality of Sleep": profile.quality_of_sleep,
-        "Physical Activity Level": profile.physical_activity_level,
-        "Stress Level": profile.stress_level,
-        "Heart Rate": profile.heart_rate,
-        "Daily Steps": profile.daily_steps,
-        "Gender": 0 if profile.gender == "Male" else 1,
-        "BMI_Normal": 1 if profile.bmi_category == "Normal" else 0,
-        "BMI_Obese": 1 if profile.bmi_category == "Obese" else 0,
-        "BMI_Overweight": 1 if profile.bmi_category == "Overweight" else 0,
-    }
+def _register_exception_handlers(application: FastAPI) -> None:
+    @application.exception_handler(AppError)
+    async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+        logger.warning("app_error status=%s path=%s", exc.status_code, request.url.path)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_body(exc.status_code, exc.error, exc.message, request.url.path),
+        )
 
-    X_input = pd.DataFrame([row])[sleep_features]
+    @application.exception_handler(RequestValidationError)
+    async def validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        field_errors: dict[str, str] = {}
+        for err in exc.errors():
+            location = ".".join(str(part) for part in err.get("loc", []) if part != "body")
+            field_errors[location or "request"] = err.get("msg", "Invalid value")
+        return JSONResponse(
+            status_code=422,
+            content=error_body(
+                422,
+                "Unprocessable Entity",
+                "Request validation failed",
+                request.url.path,
+                field_errors,
+            ),
+        )
 
-    prediction = sleep_model.predict(X_input)[0]
-    probabilities = sleep_model.predict_proba(X_input)[0]
-    confidence = round(max(probabilities), 2)
+    @application.exception_handler(Exception)
+    async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, (HTTPException, StarletteHTTPException, RequestValidationError, AppError)):
+            raise exc
+        logger.exception("unhandled_error path=%s", request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content=error_body(
+                500,
+                "Internal Server Error",
+                "An unexpected error occurred",
+                request.url.path,
+            ),
+        )
 
-    return {"risk": prediction, "confidence": confidence}
 
-
+app = create_app()
