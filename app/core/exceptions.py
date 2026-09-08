@@ -29,6 +29,11 @@ class PredictionError(AppError):
         super().__init__(message, status_code=500, error="Internal Server Error")
 
 
+class LLMUnavailableError(AppError):
+    def __init__(self, message: str = "Assistant language model is unavailable") -> None:
+        super().__init__(message, status_code=503, error="Service Unavailable")
+
+
 def error_body(status: int, error: str, message: str, path: str, field_errors: dict[str, Any] | None = None) -> dict:
     body: dict[str, Any] = {
         "status": status,

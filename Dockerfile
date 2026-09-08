@@ -6,6 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV AI_SERVICE_HOST=0.0.0.0
 ENV AI_SERVICE_PORT=8090
+ENV LLM_PROVIDER=ollama
+ENV OLLAMA_BASE_URL=http://localhost:11434
+ENV OLLAMA_MODEL=qwen2.5:7b
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

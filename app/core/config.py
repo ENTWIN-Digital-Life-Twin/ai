@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     sleep_model_required: bool = True
     lifestyle_model_required: bool = False
 
+    llm_provider: str = "ollama"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:7b"
+    ollama_timeout_seconds: float = Field(default=120.0, gt=0)
+    ollama_connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    llm_max_tokens: int = Field(default=512, gt=0, le=4096)
+    llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+
     sleep_target_minutes: float = 480.0
     hydration_target_ml: float = 2000.0
     workout_target_weekly_minutes: float = 150.0
