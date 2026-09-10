@@ -1,7 +1,9 @@
 from fastapi import Request
 
 from app.core.exceptions import ModelUnavailableError
+from app.llm.provider import LLMProvider
 from app.ml.model_loader import ModelRegistry
+from app.services.chat_service import ChatService
 from app.services.lifestyle_service import LifestyleService
 from app.services.recommendation_service import RecommendationService
 from app.services.sleep_service import SleepRiskService
@@ -29,3 +31,11 @@ def get_task_duration_service() -> TaskDurationService:
 
 def get_recommendation_service() -> RecommendationService:
     return RecommendationService()
+
+
+def get_llm_provider(request: Request) -> LLMProvider | None:
+    return getattr(request.app.state, "llm", None)
+
+
+def get_chat_service(request: Request) -> ChatService:
+    return ChatService(get_llm_provider(request))

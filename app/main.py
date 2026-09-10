@@ -6,10 +6,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routes import health, legacy, lifestyle, models, planning, recommendations, sleep
+from app.api.routes import chat, health, legacy, lifestyle, models, planning, recommendations, sleep
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError, ModelLoadError, error_body
 from app.core.logging import RequestLoggingMiddleware, configure_logging
+from app.llm.factory import create_llm_provider
 from app.ml.model_loader import load_registry
 
 logger = logging.getLogger("entwin.ai")
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     try:
         app.state.models = load_registry(settings)
+        app.state.llm = create_llm_provider(settings)
     except ModelLoadError:
         logger.exception("required model failed to load at startup")
         raise
@@ -33,7 +35,7 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="ENTWIN AI Service",
         description=(
-            "Lifestyle and sleep risk indicators for ENTWIN Digital Life Twin. "
+            "Lifestyle and sleep risk indicators plus a contextual assistant for ENTWIN Digital Life Twin. "
             "Outputs are informational and are not medical diagnoses."
         ),
         version=settings.app_version,
@@ -48,6 +50,8 @@ def create_app() -> FastAPI:
     application.include_router(lifestyle.router, prefix="/api/v1/ai")
     application.include_router(planning.router, prefix="/api/v1/ai")
     application.include_router(recommendations.router, prefix="/api/v1/ai")
+    application.include_router(chat.router, prefix="/api/v1/ai")
+    application.include_router(chat.router, prefix="/api/assistant", include_in_schema=False)
     application.include_router(legacy.router)
 
     @application.get("/")
