@@ -2,7 +2,7 @@
 
 MVP prediction service for **ENTWIN — Digital Life Twin**.
 
-This is a FastAPI service. It provides lifestyle and sleep **risk indicators**, a planning **task-duration baseline**, and deterministic lifestyle **recommendations**. It is **not** a medical diagnostic system and it does **not** include an LLM assistant.
+This is a FastAPI service. It provides lifestyle and sleep **risk indicators**, a planning **task-duration baseline**, deterministic lifestyle **recommendations**, and a contextual **assistant**. The assistant calls a **remote Ollama** server (`qwen2.5:7b` by default). It is **not** a medical diagnostic system and it does **not** train or run an LLM from scratch.
 
 Version: `0.1.0`  
 Default URL: [http://localhost:8090](http://localhost:8090)  
@@ -21,7 +21,7 @@ The service never accesses Java microservice databases (`dlt_auth`, `dlt_plannin
 | Lifestyle risk | Rule-based baseline (`evaluate_risk` + Wellness-unit mapping) | Production |
 | Task duration | Deterministic `BASELINE_ESTIMATOR` | Contract foundation |
 | Recommendations | Transparent threshold rules | MVP |
-| AI assistant / LLM | — | Out of scope |
+| AI assistant / LLM | Remote Ollama `LLMProvider` (`qwen2.5:7b`) | Production |
 
 ---
 
@@ -35,6 +35,7 @@ Angular (later)
             POST /api/v1/ai/lifestyle-risk
             POST /api/v1/ai/task-duration
             POST /api/v1/ai/recommendations
+            POST /api/v1/ai/chat          → remote Ollama (not a local model process)
 ```
 
 This milestone exposes a stable HTTP contract. It does **not** call Wellness or Planning over REST yet.
@@ -44,10 +45,11 @@ ai/
 ├── app/
 │   ├── main.py
 │   ├── baseline.py                 # original teammate rule engine (preserved)
-│   ├── api/routes/                 # health, models, sleep, lifestyle, planning, recommendations
+│   ├── api/routes/                 # health, models, sleep, lifestyle, planning, recommendations, chat
 │   ├── core/                       # config, logging, exceptions
 │   ├── schemas/
 │   ├── services/
+│   ├── llm/                            # LLMProvider abstraction + remote Ollama client
 │   ├── ml/                         # startup model loader + sleep preprocessing
 │   └── models/                     # serialized .joblib + metadata JSON
 ├── scripts/                        # training / dataset generation (not used at runtime)
@@ -76,6 +78,7 @@ Models are loaded **once at application startup** (or fail startup if the requir
 | `POST` | `/api/v1/ai/lifestyle-risk` | Lifestyle baseline from Wellness-shaped fields. |
 | `POST` | `/api/v1/ai/task-duration` | Task duration baseline. |
 | `POST` | `/api/v1/ai/recommendations` | Non-medical lifestyle suggestions. |
+| `POST` | `/api/v1/ai/chat` | Contextual assistant (remote Ollama). |
 
 ### Legacy aliases (deprecated, kept for teammate/manual tests)
 
@@ -87,6 +90,8 @@ The original service used **underscores**, not hyphens:
 | `POST` | `/predict/sleep-disorder` | Hyphen alias. |
 | `POST` | `/predict/lifestyle_risk` | Original path. Still accepts 0–100 domain scores. |
 | `POST` | `/predict/lifestyle-risk` | Hyphen alias. |
+
+| `POST` | `/api/assistant/chat` | Cahier alias of `/api/v1/ai/chat`. |
 
 Prefer `/api/v1/ai/...` for new work.
 
@@ -231,6 +236,55 @@ Healthy values in a common range return an empty list (no alarming language).
 
 ---
 
+## Assistant (remote Ollama)
+
+The from-scratch sleep tree, lifestyle rules, duration baseline, and recommendation rules are unchanged. The assistant is a separate `LLMProvider` that calls Ollama over HTTP. This service does **not** start Ollama, download weights, or train a language model.
+
+Default configuration (Ollama already running on a server, possibly forwarded to this host):
+
+```text
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b
+```
+
+`qwen2.5:7b` is a CPU-capable instruction model. Inference can be slow on CPU; raise `OLLAMA_TIMEOUT_SECONDS` if needed.
+
+`POST /api/v1/ai/chat` (cahier alias: `POST /api/assistant/chat`):
+
+```json
+{
+  "question": "What does my recent sleep pattern suggest for tomorrow morning?",
+  "context": {
+    "sleepRisk": {"predictedClass": "None", "riskLevel": "LOW"},
+    "recommendations": []
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "answer": "Your authorized sleep context is LOW risk. I do not have tomorrow’s calendar in the provided context.",
+  "engine": "LLM_PROVIDER",
+  "provider": "ollama",
+  "model": "qwen2.5:7b",
+  "proposedAction": null,
+  "disclaimer": "This assistant is informational only. It is not a medical diagnosis, prescription, or emergency service. Critical facts come from ENTWIN services, not the LLM."
+}
+```
+
+Rules from the PFE AI chapter:
+
+- Sleep / lifestyle / duration / recommendations stay in their specialized engines.
+- The LLM only sees the **authorized context JSON** the caller already computed. It is not a source of business truth and does not query Java databases.
+- Urgent medical wording is redirected by a deterministic guardrail (`CONTACT_EMERGENCY_SERVICES`) without calling Ollama.
+- Startup does not depend on Ollama. If the server is down, `/chat` returns `503` and the other endpoints keep working.
+
+Gateway path: `POST /api/v1/ai/chat` → `AI_SERVICE_URL`.
+
+---
+
 ## Dataset
 
 File: `data/sleep_health_lifestyle.csv`
@@ -352,8 +406,15 @@ See `.env.example`. Paths are resolved from the `ai/` project root, not from the
 | `SLEEP_MODEL_PATH` | `app/models/sleep_disorder_model.joblib` |
 | `SLEEP_FEATURES_PATH` | `app/models/sleep_disorder_features.joblib` |
 | `LIFESTYLE_MODEL_PATH` | `app/models/lifestyle_risk_model.joblib` |
+| `LLM_PROVIDER` | `ollama` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` |
+| `OLLAMA_MODEL` | `qwen2.5:7b` |
+| `OLLAMA_TIMEOUT_SECONDS` | `120` |
+| `OLLAMA_CONNECT_TIMEOUT_SECONDS` | `5` |
+| `LLM_MAX_TOKENS` | `512` |
+| `LLM_TEMPERATURE` | `0.2` |
 
-Logging records method, path, status, duration, and model name/version on predictions. It does **not** log JWT/Authorization, wellness notes, or full prediction bodies.
+Logging records method, path, status, duration, and model name/version on predictions. It does **not** log JWT/Authorization, wellness notes, full prediction bodies, or assistant question/answer text.
 
 ---
 
@@ -381,6 +442,10 @@ Map `WeeklyWellnessSummaryResponse` fields into `POST /api/v1/ai/lifestyle-risk`
 
 Map `plannedDurationMinutes`, `complexityLevel`, `energyRequired`, and later `actualDurationMinutes` into `POST /api/v1/ai/task-duration`. Collect real durations before training a model.
 
+### Assistant
+
+After Wellness/Planning have produced summaries (and optionally sleep-risk / recommendations), the client or a later BFF should send that JSON as `context` on `POST /api/v1/ai/chat`. Do not give this service JDBC access to Java databases.
+
 ### API Gateway
 
 A later Gateway route (not implemented in this milestone):
@@ -395,4 +460,4 @@ The AI app already serves `/api/v1/ai/**` so the Gateway can path-preserve like 
 
 ## Out of scope
 
-LLM assistant, RAG, embeddings, medical diagnosis/treatment, RabbitMQ/Kafka, Kubernetes, MLflow, automatic retraining, traffic prediction, AWS deployment.
+LLM training from scratch, RAG, embeddings, medical diagnosis/treatment, RabbitMQ/Kafka, Kubernetes, MLflow, automatic retraining, traffic prediction, AWS deployment.

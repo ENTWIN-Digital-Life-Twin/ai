@@ -28,6 +28,8 @@ def test_models_catalog(client):
     assert models["sleep-risk"]["featureCount"] == 11
     assert models["sleep-risk"]["usedInProduction"] is True
     assert models["lifestyle-risk"]["usedInProduction"] is False
+    assert models["assistant"]["algorithm"] == "qwen2.5:7b"
+    assert models["assistant"]["usedInProduction"] is True
     payload = response.text
     assert "joblib" not in payload
     assert "C:\\" not in payload
