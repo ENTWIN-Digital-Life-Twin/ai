@@ -5,30 +5,7 @@ import pytest
 
 from app.core.exceptions import LLMUnavailableError
 from app.llm.ollama_provider import OllamaProvider
-from app.llm.provider import ChatMessage, LLMResult
-
-
-class FakeLLMProvider:
-    def __init__(self, text: str = "ok") -> None:
-        self.provider_name = "ollama"
-        self.model_name = "qwen2.5:7b"
-        self.text = text
-        self.last_messages = None
-        self.calls = 0
-
-    def generate(self, messages):
-        self.calls += 1
-        self.last_messages = messages
-        return LLMResult(text=self.text, model=self.model_name, provider=self.provider_name)
-
-
-@pytest.fixture
-def fake_llm(client):
-    original = client.app.state.llm
-    provider = FakeLLMProvider()
-    client.app.state.llm = provider
-    yield provider
-    client.app.state.llm = original
+from app.llm.provider import ChatMessage
 
 
 def test_chat_returns_answer(client, fake_llm):
