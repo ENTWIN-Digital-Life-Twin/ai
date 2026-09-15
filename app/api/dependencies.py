@@ -4,6 +4,7 @@ from app.core.exceptions import ModelUnavailableError
 from app.llm.provider import LLMProvider
 from app.ml.model_loader import ModelRegistry
 from app.services.chat_service import ChatService
+from app.services.form_suggest_service import FormSuggestService
 from app.services.lifestyle_service import LifestyleService
 from app.services.recommendation_service import RecommendationService
 from app.services.sleep_service import SleepRiskService
@@ -27,6 +28,10 @@ def get_lifestyle_service(request: Request) -> LifestyleService:
 
 def get_task_duration_service() -> TaskDurationService:
     return TaskDurationService()
+
+
+def get_form_suggest_service() -> FormSuggestService:
+    return FormSuggestService()
 
 
 def get_recommendation_service() -> RecommendationService:
