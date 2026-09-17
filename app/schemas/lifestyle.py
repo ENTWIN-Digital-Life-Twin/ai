@@ -32,6 +32,7 @@ class LegacyLifestyleRequest(BaseModel):
 class LifestyleRiskResponse(APIModel):
     risk_level: str
     score: float | None = None
+    confidence: int | None = None
     engine: str
     factors: list[str]
     model_version: str | None = None

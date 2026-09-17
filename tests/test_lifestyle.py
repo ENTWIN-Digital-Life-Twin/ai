@@ -17,6 +17,8 @@ def test_wellness_lifestyle_risk(client):
     assert body["engine"] == "RULE_BASED_BASELINE"
     assert body["riskLevel"] in {"LOW", "MODERATE", "HIGH"}
     assert body["score"] is not None
+    assert body["confidence"] >= 80
+    assert body["confidence"] <= 100
     assert body["modelVersion"] is None
 
 
@@ -26,6 +28,7 @@ def test_missing_optional_fields_are_not_treated_as_zero(client):
     body = response.json()
     assert body["engine"] == "RULE_BASED_BASELINE"
     assert body["riskLevel"] == "LOW"
+    assert body["confidence"] >= 80
     assert "LOW_SLEEP" not in body["factors"]
     assert "LOW_HYDRATION" not in body["factors"]
     assert "LOW_ACTIVITY" not in body["factors"]

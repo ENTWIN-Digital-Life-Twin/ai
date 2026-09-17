@@ -64,6 +64,7 @@ class LifestyleService:
         return LifestyleRiskResponse(
             risk_level=risk_level,
             score=round(average, 1),
+            confidence=_analysis_confidence(len(domain_scores)),
             engine=ENGINE_RULE_BASED_BASELINE,
             factors=factors,
             model_version=None,
@@ -132,3 +133,8 @@ def _inverted_ten_scale(level: float) -> float:
 
 def _direct_ten_scale(level: float) -> float:
     return float(max(0.0, min(100.0, level * 10.0)))
+
+
+def _analysis_confidence(signal_count: int) -> int:
+    """Reliability of the analysis, independent of wellness quality score."""
+    return max(80, min(100, 80 + max(0, signal_count) * 3))
