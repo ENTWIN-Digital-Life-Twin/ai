@@ -63,10 +63,200 @@ def test_chat_unavailable_when_provider_missing(client):
     client.app.state.llm = None
     try:
         response = client.post("/api/v1/ai/chat", json={"question": "Plan my morning"})
-        assert response.status_code == 503
-        assert "unavailable" in response.json()["error"].lower() or "unavailable" in response.json()["message"].lower()
+        assert response.status_code == 200
+        body = response.json()
+        assert body["engine"] == "RULE_BASED_BASELINE"
+        assert body["answer"]
+        assert "snapshot" not in body["answer"].lower()
+        assert "task" in body["answer"].lower() or "morning" in body["answer"].lower()
     finally:
         client.app.state.llm = original
+
+
+def test_organize_afternoon_uses_tasks_not_snapshot_dump(client):
+    original = client.app.state.llm
+    client.app.state.llm = None
+    try:
+        response = client.post(
+            "/api/v1/ai/chat",
+            json={
+                "question": "How should I organize my afternoon?",
+                "context": {
+                    "planning": {
+                        "tasksCompleted": 2,
+                        "tasksTotal": 7,
+                        "freeMinutes": 90,
+                        "overloaded": False,
+                    },
+                    "upcoming": {"title": "Team review", "time": "16:00"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        answer = response.json()["answer"].lower()
+        assert "snapshot" not in answer
+        assert "balance" not in answer
+        assert "5 remaining" in answer or "remaining" in answer
+        assert "team review" in answer
+        assert "16:00" in answer
+    finally:
+        client.app.state.llm = original
+
+
+def test_chat_rule_based_mentions_sleep_duration(client):
+    original = client.app.state.llm
+    client.app.state.llm = None
+    try:
+        response = client.post(
+            "/api/v1/ai/chat",
+            json={
+                "question": "How is my sleep this week?",
+                "context": {
+                    "wellness": {"sleep": {"value": "7h 20"}},
+                    "weeklySummary": {"averageSleepMinutes": 450},
+                },
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["engine"] == "RULE_BASED_BASELINE"
+        assert "7h 20" in body["answer"]
+        assert "duration" in body["answer"].lower()
+        assert "7.5h" in body["answer"]
+    finally:
+        client.app.state.llm = original
+
+
+def test_chat_falls_back_when_ollama_unavailable(client):
+    original = client.app.state.llm
+
+    class BoomLLM:
+        def generate(self, messages):
+            raise LLMUnavailableError("Ollama server is unreachable.")
+
+    client.app.state.llm = BoomLLM()
+    try:
+        response = client.post("/api/v1/ai/chat", json={"question": "How is my sleep?"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["engine"] == "RULE_BASED_BASELINE"
+        assert "bedtime" in body["answer"].lower() or "sleep" in body["answer"].lower()
+    finally:
+        client.app.state.llm = original
+
+
+def test_create_task_intent_works_without_llm(client):
+    original = client.app.state.llm
+    client.app.state.llm = None
+    try:
+        response = client.post(
+            "/api/v1/ai/chat",
+            json={"question": "Create a task: finish the weekly report"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["proposedAction"] == "CREATE_TASK"
+        assert body["proposedTask"]["title"].lower().find("weekly report") >= 0
+        assert body["engine"] == "RULE_BASED_BASELINE"
+    finally:
+        client.app.state.llm = original
+
+
+def test_chat_forwards_history_to_llm(client, fake_llm):
+    response = client.post(
+        "/api/v1/ai/chat",
+        json={
+            "question": "And today?",
+            "history": [
+                {"role": "user", "content": "How was my sleep yesterday?"},
+                {"role": "assistant", "content": "You slept about 7 hours."},
+            ],
+            "context": {"weeklySummary": {"averageSleepMinutes": 420}},
+        },
+    )
+    assert response.status_code == 200
+    roles = [item.role for item in fake_llm.last_messages]
+    assert roles[0] == "system"
+    assert "user" in roles
+    assert "assistant" in roles
+    assert any("yesterday" in item.content for item in fake_llm.last_messages)
+
+
+def test_how_to_create_task_without_llm(client):
+    original = client.app.state.llm
+    client.app.state.llm = None
+    try:
+        response = client.post("/api/v1/ai/chat", json={"question": "How do I create a task?"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["engine"] == "RULE_BASED_BASELINE"
+        assert body["proposedAction"] is None
+        assert "Tasks" in body["answer"] or "Planning" in body["answer"]
+    finally:
+        client.app.state.llm = original
+
+
+def test_how_to_create_task_does_not_propose_task(client, fake_llm):
+    response = client.post("/api/v1/ai/chat", json={"question": "How do I create a task?"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["proposedAction"] is None
+    assert body["proposedTask"] is None
+    assert fake_llm.calls == 1
+
+
+def test_llm_entwin_action_is_parsed(client, fake_llm):
+    fake_llm.text = (
+        'Sure, I can add that.\n'
+        'ENTWIN_ACTION:{"type":"CREATE_TASK","title":"Review chapter 5","durationMinutes":60,"priority":"HIGH","category":"STUDIES"}'
+    )
+    response = client.post("/api/v1/ai/chat", json={"question": "Please add a revision task"})
+    assert response.status_code == 200
+    body = response.json()
+    assert "ENTWIN_ACTION" not in body["answer"]
+    assert body["proposedAction"] == "CREATE_TASK"
+    assert body["proposedTask"]["title"] == "Review chapter 5"
+    assert body["proposedTask"]["durationMinutes"] == 60
+    assert body["proposedTask"]["category"] == "STUDIES"
+
+
+def test_form_suggest_meal_from_quantity(client):
+    response = client.post(
+        "/api/v1/ai/form-suggest",
+        json={"formType": "MEAL", "title": "rice 100g chicken 150g", "category": "lunch"},
+    )
+    assert response.status_code == 200
+    fields = {item["field"]: item["value"] for item in response.json()["suggestions"]}
+    assert "Rice 100g" in fields["foods"]
+    assert "Chicken 150g" in fields["foods"]
+    assert int(fields["calories"]) > 0
+    assert int(fields["protein"]) > 0
+
+
+def test_form_suggest_workout_from_duration(client):
+    response = client.post(
+        "/api/v1/ai/form-suggest",
+        json={"formType": "WORKOUT", "title": "running 40 min", "category": "running"},
+    )
+    assert response.status_code == 200
+    fields = {item["field"]: item["value"] for item in response.json()["suggestions"]}
+    assert fields["duration"] == "40"
+    assert fields["calories"] == "440"
+    assert fields["intensity"] == "high"
+
+
+def test_form_suggest_task_from_title(client):
+    response = client.post(
+        "/api/v1/ai/form-suggest",
+        json={"formType": "TASK", "title": "Urgent weekly report", "category": "personal"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    fields = {item["field"]: item["value"] for item in body["suggestions"]}
+    assert fields["duration"] == "90"
+    assert fields["priority"] == "high"
+    assert fields["category"] == "work"
+    assert body["engine"] == "RULE_BASED_BASELINE"
 
 
 def test_models_catalog_includes_assistant(client):
