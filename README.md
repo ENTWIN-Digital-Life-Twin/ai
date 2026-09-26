@@ -20,7 +20,7 @@ The service never accesses Java microservice databases (`dlt_auth`, `dlt_plannin
 | Sleep risk indicator | Frozen `DecisionTreeClassifier` from the teammate project | Production |
 | Lifestyle risk | Rule-based baseline (`evaluate_risk` + Wellness-unit mapping) | Production |
 | Task duration | Deterministic `BASELINE_ESTIMATOR` | Contract foundation |
-| Recommendations | Transparent threshold rules | MVP |
+| Recommendations | Multi-label `ML_RECOMMENDER` (HistGradientBoosting) with rule fallback | Production |
 | AI assistant / LLM | Remote Ollama `LLMProvider` (`qwen2.5:7b`) | Production |
 
 ---
@@ -50,7 +50,8 @@ ai/
 │   ├── schemas/
 │   ├── services/
 │   ├── llm/                            # LLMProvider abstraction + remote Ollama client
-│   ├── ml/                         # startup model loader + sleep preprocessing
+│   ├── ml/                         # startup model loader + sleep preprocessing + recommendation ML
+│   │   └── recommendation/         # catalog, features, labels, ranker
 │   └── models/                     # serialized .joblib + metadata JSON
 ├── scripts/                        # training / dataset generation (not used at runtime)
 ├── data/sleep_health_lifestyle.csv
@@ -216,9 +217,30 @@ No task-duration dataset or model exists in this repository.
 
 ---
 
-## Recommendation rules
+## Recommendation model
 
-Deterministic, non-medical. Wording uses “your recent pattern shows…”, “you may want to…”, “consider…”.
+Production `POST /api/v1/ai/recommendations` prefers a trained multi-label ranker:
+
+- **Algorithm:** `OneVsRestClassifier(HistGradientBoostingClassifier)`
+- **Artifacts:** `app/models/recommendation_model.joblib`, `recommendation_features.joblib`, `recommendation_model.metadata.json`
+- **Engine:** `ML_RECOMMENDER` when the model loads; otherwise `RULE_BASED_BASELINE`
+- **Labels:** guideline soft relevance on Sleep Health & Lifestyle rows (+ sparse anchors), then thresholded multi-hot
+- **Augmentation:** Gaussian noise + mixup interpolation + sparse masking (~6k samples)
+- **Inference:** `P(type) * severity` → top 3 with type diversity → template messages
+- **Optional fields:** items may include `score` / `confidence` (Jackson-safe extras)
+
+Train / evaluate (does not run at API startup):
+
+```text
+python scripts/train_recommendation_model.py --evaluate-only
+python scripts/train_recommendation_model.py --overwrite
+```
+
+Holdout metrics are stored in the metadata JSON and summarized on `GET /api/v1/ai/models`.
+
+### Rule fallback thresholds
+
+Used when the artifact is missing or unloadable. Wording stays non-medical (“your recent pattern shows…”, “you may want to…”, “consider…”).
 
 | Signal | Threshold | Type / priority |
 | --- | --- | --- |
@@ -232,13 +254,13 @@ Deterministic, non-medical. Wording uses “your recent pattern shows…”, “
 | Mood | `<= 4` | `MOOD` / MEDIUM |
 | Steps | `< 4000` | `ACTIVITY` / MEDIUM |
 
-Healthy values in a common range return an empty list (no alarming language).
+Healthy values in a common range return an empty list when all model scores stay below the calibrated floor (and under pure rules).
 
 ---
 
 ## Assistant (remote Ollama)
 
-The from-scratch sleep tree, lifestyle rules, duration baseline, and recommendation rules are unchanged. The assistant is a separate `LLMProvider` that calls Ollama over HTTP. This service does **not** start Ollama, download weights, or train a language model.
+The sleep tree, lifestyle rules, duration baseline, and recommendation engines are unchanged by the assistant. The assistant is a separate `LLMProvider` that calls Ollama over HTTP. This service does **not** start Ollama, download weights, or train a language model.
 
 Default configuration (Ollama already running on a server, possibly forwarded to this host):
 
@@ -371,9 +393,14 @@ python scripts/train_model.py --evaluate-only
 python scripts/train_model.py --no-save
 python scripts/train_model.py
 python scripts/train_model.py --overwrite
+
+python scripts/train_recommendation_model.py --evaluate-only
+python scripts/train_recommendation_model.py --overwrite
 ```
 
-Default training writes to `app/models/staging/` and does **not** replace the production pickle. Use `--overwrite` only after comparing metrics.
+Default sleep training writes to `app/models/staging/` and does **not** replace the production pickle. Use `--overwrite` only after comparing metrics.
+
+Recommendation training writes directly to `app/models/recommendation_*.joblib` when `--overwrite` is passed (optional model; API falls back to rules if missing).
 
 Synthetic lifestyle scores (for the unused lifestyle pickle experiment):
 

@@ -17,6 +17,8 @@ class RecommendationItem(APIModel):
     type: str
     priority: str
     message: str
+    score: float | None = None
+    confidence: float | None = None
 
 
 class RecommendationResponse(APIModel):

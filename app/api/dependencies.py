@@ -34,8 +34,9 @@ def get_form_suggest_service() -> FormSuggestService:
     return FormSuggestService()
 
 
-def get_recommendation_service() -> RecommendationService:
-    return RecommendationService()
+def get_recommendation_service(request: Request) -> RecommendationService:
+    registry = get_registry(request)
+    return RecommendationService(recommendation_model=registry.recommendation)
 
 
 def get_llm_provider(request: Request) -> LLMProvider | None:
