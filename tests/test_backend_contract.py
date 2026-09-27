@@ -59,7 +59,7 @@ def test_java_recommendation_payloads(client, payload, expected_types):
     response = client.post("/api/v1/ai/recommendations", json=payload)
     assert response.status_code == 200
     body = response.json()
-    assert body["engine"] == "RULE_BASED_BASELINE"
+    assert body["engine"] in {"ML_RECOMMENDER", "RULE_BASED_BASELINE"}
     types = {item["type"] for item in body["recommendations"]}
     if expected_types:
         assert expected_types & types

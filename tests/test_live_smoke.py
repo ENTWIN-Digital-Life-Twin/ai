@@ -37,7 +37,9 @@ def test_live_lifestyle_from_java_shape(live_client):
 def test_live_recommendations_from_java_shape(live_client):
     response = live_client.post("/api/v1/ai/recommendations", json={"hydrationMl": 900})
     assert response.status_code == 200
-    assert response.json()["engine"] == "RULE_BASED_BASELINE"
+    body = response.json()
+    assert body["engine"] in {"ML_RECOMMENDER", "RULE_BASED_BASELINE"}
+    assert any(item["type"] == "HYDRATION" for item in body["recommendations"])
 
 
 def test_live_task_duration_from_java_shape(live_client):

@@ -10,6 +10,8 @@ from app.core.config import Settings
 from app.core.constants import (
     LIFESTYLE_MODEL_NAME,
     LIFESTYLE_MODEL_VERSION,
+    RECOMMENDATION_MODEL_NAME,
+    RECOMMENDATION_MODEL_VERSION,
     SLEEP_MODEL_NAME,
     SLEEP_MODEL_VERSION,
 )
@@ -41,6 +43,7 @@ class LoadedModel:
 class ModelRegistry:
     sleep: LoadedModel | None = None
     lifestyle: LoadedModel | None = None
+    recommendation: LoadedModel | None = None
 
     def public_catalog(self) -> list[dict[str, Any]]:
         models = []
@@ -93,13 +96,43 @@ class ModelRegistry:
                     notes="Optional artifact; production lifestyle-risk uses RULE_BASED_BASELINE.",
                 )
             )
+        if self.recommendation is not None:
+            metrics = (self.recommendation.metadata or {}).get("metrics") or {}
+            notes = (
+                "Multi-label HistGradientBoosting ranker; engine ML_RECOMMENDER when loaded. "
+                f"Holdout macro-F1={metrics.get('macro_f1', 'n/a')}."
+            )
+            models.append(
+                public_model_info(
+                    name=self.recommendation.name,
+                    version=self.recommendation.version,
+                    algorithm=self.recommendation.algorithm,
+                    loaded=True,
+                    feature_count=self.recommendation.feature_count,
+                    used_in_production=True,
+                    notes=notes,
+                )
+            )
+        else:
+            models.append(
+                public_model_info(
+                    name=RECOMMENDATION_MODEL_NAME,
+                    version=RECOMMENDATION_MODEL_VERSION,
+                    algorithm=None,
+                    loaded=False,
+                    feature_count=None,
+                    used_in_production=True,
+                    notes="Optional artifact; falls back to RULE_BASED_BASELINE when missing.",
+                )
+            )
         return models
 
 
 def load_registry(settings: Settings) -> ModelRegistry:
     sleep = _load_sleep(settings)
     lifestyle = _load_lifestyle(settings)
-    return ModelRegistry(sleep=sleep, lifestyle=lifestyle)
+    recommendation = _load_recommendation(settings)
+    return ModelRegistry(sleep=sleep, lifestyle=lifestyle, recommendation=recommendation)
 
 
 def _load_sleep(settings: Settings) -> LoadedModel | None:
@@ -193,6 +226,61 @@ def _load_lifestyle(settings: Settings) -> LoadedModel | None:
         algorithm=algorithm,
         metadata=metadata,
         used_in_production=False,
+    )
+
+
+def _load_recommendation(settings: Settings) -> LoadedModel | None:
+    model_path = settings.resolve_path(settings.recommendation_model_path)
+    features_path = settings.resolve_path(settings.recommendation_features_path)
+    metadata_path = settings.resolve_path(settings.recommendation_metadata_path)
+
+    if not model_path.is_file():
+        message = f"Optional recommendation model file is missing: {model_path.name}"
+        if settings.recommendation_model_required:
+            raise ModelLoadError(message)
+        logger.info(message)
+        return None
+
+    if not features_path.is_file():
+        message = f"Optional recommendation feature-order file is missing: {features_path.name}"
+        if settings.recommendation_model_required:
+            raise ModelLoadError(message)
+        logger.info(message)
+        return None
+
+    try:
+        estimator = joblib.load(model_path)
+        feature_names = joblib.load(features_path)
+    except Exception as exc:  # noqa: BLE001
+        if settings.recommendation_model_required:
+            raise ModelLoadError("Failed to load the recommendation model artifacts.") from exc
+        logger.warning("optional recommendation model could not be loaded: %s", type(exc).__name__)
+        return None
+
+    if not isinstance(feature_names, list) or not all(isinstance(name, str) for name in feature_names):
+        if settings.recommendation_model_required:
+            raise ModelLoadError("Recommendation feature metadata must be a list of feature name strings.")
+        logger.warning("recommendation feature metadata invalid; skipping model")
+        return None
+
+    metadata = load_json_metadata(metadata_path)
+    version = str(metadata.get("version") or RECOMMENDATION_MODEL_VERSION)
+    algorithm = _algorithm_name(estimator, metadata)
+    logger.info(
+        "loaded model=%s version=%s algorithm=%s features=%s used_in_production=true",
+        RECOMMENDATION_MODEL_NAME,
+        version,
+        algorithm,
+        len(feature_names),
+    )
+    return LoadedModel(
+        name=RECOMMENDATION_MODEL_NAME,
+        version=version,
+        estimator=estimator,
+        feature_names=feature_names,
+        algorithm=algorithm,
+        metadata=metadata,
+        used_in_production=True,
     )
 
 

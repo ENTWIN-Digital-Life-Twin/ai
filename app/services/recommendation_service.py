@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from app.core.constants import ENGINE_RULE_BASED_BASELINE
+from app.core.constants import ENGINE_ML_RECOMMENDER, ENGINE_RULE_BASED_BASELINE
+from app.ml.model_loader import LoadedModel
+from app.ml.recommendation.features import build_feature_vector, signals_from_request
+from app.ml.recommendation.ranker import rank_recommendations
 from app.schemas.recommendations import RecommendationItem, RecommendationRequest, RecommendationResponse
 
 logger = logging.getLogger("entwin.ai.recommendations")
@@ -19,9 +23,68 @@ STEPS_LOW = 4000.0
 
 
 class RecommendationService:
-    """Transparent threshold rules. Not medical advice and not an LLM."""
+    """ML multi-label ranker with transparent rule fallback. Not medical advice."""
+
+    def __init__(self, recommendation_model: LoadedModel | None = None) -> None:
+        self._model = recommendation_model
 
     def recommend(self, request: RecommendationRequest) -> RecommendationResponse:
+        if self._model is not None and self._model.estimator is not None:
+            try:
+                return self._recommend_ml(request)
+            except Exception:  # noqa: BLE001 - never fail the endpoint; fall back to rules
+                logger.exception("ml recommender failed; falling back to rules")
+
+        return self._recommend_rules(request)
+
+    def _recommend_ml(self, request: RecommendationRequest) -> RecommendationResponse:
+        signals = signals_from_request(request)
+        vector = build_feature_vector(signals).reshape(1, -1)
+        estimator = self._model.estimator
+        feature_names = self._model.feature_names
+        if feature_names and len(feature_names) != vector.shape[1]:
+            raise ValueError(
+                f"feature count mismatch: model expects {len(feature_names)}, got {vector.shape[1]}"
+            )
+
+        probabilities = self._predict_probabilities(estimator, vector)
+        ranked = rank_recommendations(probabilities)
+        items = [
+            RecommendationItem(
+                type=item.type,
+                priority=item.priority,
+                message=item.message,
+                score=item.score,
+                confidence=item.confidence,
+            )
+            for item in ranked
+        ]
+        logger.info(
+            "prediction success model=recommendations engine=%s count=%s",
+            ENGINE_ML_RECOMMENDER,
+            len(items),
+        )
+        return RecommendationResponse(recommendations=items, engine=ENGINE_ML_RECOMMENDER)
+
+    @staticmethod
+    def _predict_probabilities(estimator: Any, vector) -> dict[str, float]:
+        from app.ml.recommendation.catalog import REC_TYPES
+
+        raw = estimator.predict_proba(vector)
+        probs: dict[str, float] = {}
+        if isinstance(raw, list):
+            for name, arr in zip(REC_TYPES, raw):
+                if getattr(arr, "ndim", 1) == 2 and arr.shape[1] == 2:
+                    probs[name] = float(arr[0, 1])
+                else:
+                    probs[name] = float(arr[0])
+        else:
+            row = raw[0]
+            for i, name in enumerate(REC_TYPES):
+                probs[name] = float(row[i]) if i < len(row) else 0.0
+        return probs
+
+    def _recommend_rules(self, request: RecommendationRequest) -> RecommendationResponse:
         items: list[RecommendationItem] = []
 
         if request.hydration_ml is not None and request.hydration_ml < HYDRATION_HIGH_ML:

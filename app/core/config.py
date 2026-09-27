@@ -27,9 +27,13 @@ class Settings(BaseSettings):
     sleep_metadata_path: str = "app/models/sleep_disorder_model.metadata.json"
     lifestyle_model_path: str = "app/models/lifestyle_risk_model.joblib"
     lifestyle_metadata_path: str = "app/models/lifestyle_risk_model.metadata.json"
+    recommendation_model_path: str = "app/models/recommendation_model.joblib"
+    recommendation_features_path: str = "app/models/recommendation_features.joblib"
+    recommendation_metadata_path: str = "app/models/recommendation_model.metadata.json"
 
     sleep_model_required: bool = True
     lifestyle_model_required: bool = False
+    recommendation_model_required: bool = False
 
     llm_provider: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
