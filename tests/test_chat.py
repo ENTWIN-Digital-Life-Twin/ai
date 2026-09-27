@@ -301,6 +301,53 @@ def test_ollama_provider_posts_to_remote_chat_api():
     assert "http://localhost:11434/api/chat" in captured["url"]
 
 
+def test_forbidden_topic_does_not_call_llm(client, fake_llm):
+    response = client.post("/api/v1/ai/chat", json={"question": "How do I buy illegal drugs?"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["engine"] == "RULE_BASED_BASELINE"
+    assert "don't discuss" in body["answer"].lower() or "do not discuss" in body["answer"].lower()
+    assert fake_llm.calls == 0
+
+
+def test_qwen_provider_posts_openai_compatible_chat():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(
+            200,
+            json={
+                "model": "qwen2.5-72b-instruct",
+                "choices": [{"message": {"role": "assistant", "content": "You slept 7 hours."}}],
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    provider = __import__("app.llm.qwen_provider", fromlist=["QwenProvider"]).QwenProvider(
+        base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        api_key="test-key",
+        model="qwen2.5-72b-instruct",
+        timeout_seconds=5,
+        temperature=0.2,
+        max_tokens=128,
+    )
+    real_client = httpx.Client
+
+    def client_factory(**kwargs):
+        kwargs["transport"] = transport
+        return real_client(**kwargs)
+
+    with patch("app.llm.qwen_provider.httpx.Client", client_factory):
+        result = provider.generate([ChatMessage(role="user", content="How did I sleep?")])
+    assert result.text == "You slept 7 hours."
+    assert result.provider == "qwen"
+    assert result.model == "qwen2.5-72b-instruct"
+    assert captured["url"].endswith("/chat/completions")
+    assert captured["auth"] == "Bearer test-key"
+
+
 def test_ollama_provider_maps_connection_errors():
     provider = OllamaProvider(
         base_url="http://localhost:11434",

@@ -36,7 +36,11 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:7b"
     ollama_timeout_seconds: float = Field(default=120.0, gt=0)
     ollama_connect_timeout_seconds: float = Field(default=5.0, gt=0)
-    llm_max_tokens: int = Field(default=512, gt=0, le=4096)
+    qwen_api_key: str = ""
+    qwen_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    qwen_model: str = "qwen2.5-72b-instruct"
+    qwen_timeout_seconds: float = Field(default=60.0, gt=0)
+    llm_max_tokens: int = Field(default=1024, gt=0, le=4096)
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
 
     sleep_target_minutes: float = 480.0

@@ -7,6 +7,7 @@ from app.core.config import Settings
 from app.core.constants import ASSISTANT_NAME
 from app.llm.ollama_provider import OllamaProvider
 from app.llm.provider import LLMProvider
+from app.llm.qwen_provider import QwenProvider
 from app.ml.metadata import public_model_info
 
 logger = logging.getLogger("entwin.ai.llm")
@@ -17,6 +18,19 @@ def create_llm_provider(settings: Settings) -> LLMProvider | None:
     if provider_name in {"", "none", "off", "disabled"}:
         logger.info("llm_provider disabled")
         return None
+    if provider_name == "qwen":
+        if not settings.qwen_api_key.strip() or not settings.qwen_model.strip():
+            logger.warning("qwen configuration incomplete; assistant disabled")
+            return None
+        logger.info("llm_provider configured provider=qwen model=%s", settings.qwen_model)
+        return QwenProvider(
+            base_url=settings.qwen_base_url,
+            api_key=settings.qwen_api_key,
+            model=settings.qwen_model,
+            timeout_seconds=settings.qwen_timeout_seconds,
+            temperature=settings.llm_temperature,
+            max_tokens=settings.llm_max_tokens,
+        )
     if provider_name != "ollama":
         logger.warning("unknown llm_provider=%s; assistant disabled", provider_name)
         return None
@@ -38,7 +52,13 @@ def create_llm_provider(settings: Settings) -> LLMProvider | None:
 
 
 def llm_public_info(settings: Settings, provider: LLMProvider | None) -> dict[str, Any]:
-    algorithm = settings.ollama_model if (settings.llm_provider or "").strip().lower() == "ollama" else settings.llm_provider
+    provider_name = (settings.llm_provider or "").strip().lower()
+    if provider_name == "qwen":
+        algorithm = settings.qwen_model
+    elif provider_name == "ollama":
+        algorithm = settings.ollama_model
+    else:
+        algorithm = settings.llm_provider
     return public_model_info(
         name=ASSISTANT_NAME,
         version=settings.app_version,
@@ -47,7 +67,7 @@ def llm_public_info(settings: Settings, provider: LLMProvider | None) -> dict[st
         feature_count=None,
         used_in_production=True,
         notes=(
-            "Remote LLMProvider (Ollama HTTP). Uses caller-supplied context only; "
-            "not a source of business truth and not a medical diagnosis."
+            "Hosted Qwen 2.5 when LLM_PROVIDER=qwen, otherwise Ollama HTTP. "
+            "Uses the signed-in user's records only; not a medical diagnosis."
         ),
     )
